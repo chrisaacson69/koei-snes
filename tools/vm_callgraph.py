@@ -37,6 +37,7 @@ def main(argv):
     ap.add_argument("--dump-leaves", dest="dump_leaves", action="store_true")
     ap.add_argument("--unnamed", action="store_true", help="report named/unnamed + naming frontier")
     ap.add_argument("--dump-frontier", dest="dump_frontier", action="store_true", help="dump frontier routine bodies")
+    ap.add_argument("--tree", action="store_true", help="print top-down call forest (for the walk-down)")
     ap.add_argument("--scan", type=lambda s: int(s, 16), default=None,
                     help="also seed from every direct-call target found up to this END addr")
     a = ap.parse_args(argv[1:])
@@ -156,6 +157,30 @@ def main(argv):
             parts.append(m)
         return "  ".join(parts)
 
+    if a.tree:
+        from symbols import Symbols
+        S = Symbols(a.syms)
+        called = set()
+        for r in routines.values():
+            called |= {c for c in r["calls"] if c in routines}
+        tops = [vaddr0] + sorted(e for e in routines if e not in called and e != vaddr0)
+        nm = lambda e: S.string(e) or "$%04X" % e
+        seen = set()
+
+        def pr(e, depth):
+            tag = nm(e)
+            if e not in routines:
+                print("  " * depth + "> " + tag + " [ext]"); return
+            if e in seen:
+                print("  " * depth + "> " + tag + " ..."); return
+            seen.add(e)
+            print("  " * depth + ("" if depth == 0 else "> ") + tag)
+            for c in sorted(routines[e]["calls"]):
+                pr(c, depth + 1)
+        print("== top-down call forest (%d top-level entries) ==" % len(tops))
+        for t in tops:
+            pr(t, 0)
+        return
     if a.unnamed or a.dump_frontier:
         from symbols import Symbols
         S = Symbols(a.syms)
