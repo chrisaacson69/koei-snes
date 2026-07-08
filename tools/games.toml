@@ -27,6 +27,10 @@ syscall_count     = 69
 syscall_dispatch  = 0x8C1D
 run_vm_entry      = 0x9A4C
 resource_archive  = 0xF800   # named-blob directory (root/comroot/excsub/...)
+# WRAM overlay map (module header = JMP base+3). Overlays share a slot (one at a time).
+# root=$7E:2000 resident; comroot(AI)/settei/kisetsu=$7E:7200; excsub1-6=$7E:C300;
+# cbmdata1=$7E:0000. 11 modules, ~1965 routines total. See rot3k2-snes docs/09-modules.md.
+module_bases = { root = 0x2000, comroot = 0x7200, settei = 0x7200, kisetsu = 0x7200, cbmdata1 = 0x0000, excsub = 0xC300 }
 loader            = 0x9636   # cross-bank block copy -> WRAM (self-mod MVN at $006C)
 code_span         = [0x800C, 0xB20A]   # native engine extent (rest of bank $00 = data)
 # operand-fetch helpers -> bytes each pulls from the bytecode PC ($06)

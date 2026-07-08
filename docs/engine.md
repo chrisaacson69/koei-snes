@@ -9,10 +9,14 @@ VM** driven by a native 65C816 kernel. Reversed from *Romance of the Three Kingd
 
 1. **BIOS / boot** — native, fixed bank `$00`. RESET → native-mode + PPU/DMA/CGRAM/OAM
    init, then load the `root` module into WRAM and enter it.
-2. **Resource archive** — a named-blob directory (`resource_archive`, e.g. `$00:F800`):
-   16-byte entries `[8-char name][bank][addr][len]`. Blobs (`root`, `comroot`=AI,
-   `excsub1-6`, `sdata`=sound, …) are block-copied into WRAM on demand by a cross-bank
-   copier that builds a self-modifying `MVN` in RAM. Replaces NES MMC5 bank-switching.
+2. **Resource archive + WRAM overlays** — a named-blob directory (`resource_archive`,
+   e.g. `$00:F800`): 16-byte entries `[8-char name][bank][addr][len]`. Blobs (`root`,
+   `comroot`=AI, `excsub1-6`, `sdata`=sound, …) are block-copied into WRAM on demand by a
+   cross-bank copier that builds a self-modifying `MVN` in RAM. Each module's WRAM base is
+   its header `JMP base+3`. Modules share fixed WRAM **overlay slots** (one loaded at a
+   time) — the segmented-memory equivalent of MMC5 bank-switching: instead of mapping a
+   ROM bank into a window, copy a resource into its slot. `root` is the resident main; the
+   rest overlay (see the title's module map).
 3. **The ABI** — a `JMP`-trampoline table at `abi_table` (`$00:8000`), the 4 VM services
    the modules call via `JSL`: **run-VM**, **syscall**, **ext-op** ×2.
 4. **The bytecode VM** — `interpreter_loop` (`$9A8F`): `LDA [$06]` (PC) → `INC $06` →
