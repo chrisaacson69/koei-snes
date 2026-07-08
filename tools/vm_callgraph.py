@@ -103,20 +103,28 @@ def main(argv):
         return dict(size=len(starts), calls=calls, indirect=indirect, conflict=conflict, order=order)
 
     seeds = [vaddr0]
-    if a.scan:                       # collect every direct-call target across the code region
-        v = vaddr0
-        while v < a.scan:
-            op = read(v)
-            if op in DIRECT_CALL:
-                seeds.append(read(v + 1) | (read(v + 2) << 8))
+    if a.scan:                       # scan the code region for call targets to seed discovery.
+        v = vaddr0                   # SCAN seeds must carry the prologue (kills linear-drift
+        while v < a.scan:            # false entries); real call edges found while walking are
+            op = read(v)             # trusted below even without it (some routines, e.g. the
+            if op in DIRECT_CALL:    # HW-math $6B45, are called but use a different prologue).
+                t = read(v + 1) | (read(v + 2) << 8)
+                if vaddr0 <= t < a.scan and read(t) == 0x20 and read(t + 1) == 0xE6:
+                    seeds.append(t)
             v += declen(v)
     routines, work, external = {}, list(seeds), set()
     while work:
         e = work.pop()
         if e in routines or e in external:
             continue
-        # true routine entries carry the prologue `store fA[0] / brel` ($20 $E6); a call
-        # target lacking it is a mid-routine point (scan drift / false entry), not a routine.
+        # entries must lie within this module's code region (a call target past --scan END
+        # is reading the next module's ROM -> false entry, e.g. root reaching into settei).
+        if a.scan and not (vaddr0 <= e < a.scan):
+            external.add(e); continue
+        # prologue ($20 $E6) marks a true entry; a non-prologue target is a mid-routine
+        # point from data mis-decode (esp. the data-heavy HW-math routine). Excluded from
+        # the routine set; if it is genuinely called it can still be named in routines.toml
+        # (annotation), and the frontier logic below does not block on non-routine callees.
         if e != vaddr0 and not (read(e) == 0x20 and read(e + 1) == 0xE6):
             external.add(e); continue
         r = walk_routine(e)
@@ -153,8 +161,12 @@ def main(argv):
         S = Symbols(a.syms)
         named = [e for e in routines if S.string(e)]
         unn = [e for e in routines if not S.string(e)]
-        # naming frontier: unnamed routines all of whose callees ARE named (ready to name)
-        frontier = [e for e in unn if all(S.string(c) for c in routines[e]["calls"])]
+        # naming frontier: unnamed routines whose every callee THAT IS A ROUTINE is named.
+        # A callee not in `routines` (native, data-mis-decode, or a separately-named blob) is
+        # not a nameable routine, so it must not block the frontier -- only real routines do.
+        def callee_ok(c):
+            return (c not in routines) or bool(S.string(c))
+        frontier = [e for e in unn if all(callee_ok(c) for c in routines[e]["calls"])]
         if a.dump_frontier:
             print("== frontier bodies (%d; >name = call to named routine) ==" % len(frontier))
             for e in sorted(frontier):
