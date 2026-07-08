@@ -36,6 +36,7 @@ def main(argv):
     ap.add_argument("--leaves", action="store_true"); ap.add_argument("--syms", default=None)
     ap.add_argument("--dump-leaves", dest="dump_leaves", action="store_true")
     ap.add_argument("--unnamed", action="store_true", help="report named/unnamed + naming frontier")
+    ap.add_argument("--dump-frontier", dest="dump_frontier", action="store_true", help="dump frontier routine bodies")
     ap.add_argument("--scan", type=lambda s: int(s, 16), default=None,
                     help="also seed from every direct-call target found up to this END addr")
     a = ap.parse_args(argv[1:])
@@ -114,6 +115,10 @@ def main(argv):
         e = work.pop()
         if e in routines or e in external:
             continue
+        # true routine entries carry the prologue `store fA[0] / brel` ($20 $E6); a call
+        # target lacking it is a mid-routine point (scan drift / false entry), not a routine.
+        if e != vaddr0 and not (read(e) == 0x20 and read(e + 1) == 0xE6):
+            external.add(e); continue
         r = walk_routine(e)
         # a "clean" bytecode routine has no immediate conflict and some size
         if r["size"] == 0 or r["conflict"] > r["size"] // 4:
@@ -123,13 +128,38 @@ def main(argv):
             if c not in routines:
                 work.append(c)
 
-    if a.unnamed:
+    def compact_body(e, S):
+        parts = []
+        for v in sorted(routines[e]["order"]):
+            op = read(v)
+            if op == D.EXT_PREFIX:
+                parts.append(D.EXT_NAMES.get(read(v + 1), "ext%02X" % read(v + 1))); continue
+            m = D.mnem(op).split()[0]
+            ln = declen(v)
+            if op in DIRECT_CALL:
+                t = read(v + 1) | (read(v + 2) << 8); m = ">" + (S.string(t) or "$%04X" % t)
+            elif op in INDIRECT_CALL:
+                m = ">*regA"
+            elif ln == 3:
+                val = read(v + 1) | (read(v + 2) << 8); lbl = S.string(val)
+                m += "=" + (lbl if lbl else "$%04X" % val)
+            elif ln == 2:
+                m += " $%02X" % read(v + 1)
+            parts.append(m)
+        return "  ".join(parts)
+
+    if a.unnamed or a.dump_frontier:
         from symbols import Symbols
         S = Symbols(a.syms)
         named = [e for e in routines if S.string(e)]
         unn = [e for e in routines if not S.string(e)]
         # naming frontier: unnamed routines all of whose callees ARE named (ready to name)
         frontier = [e for e in unn if all(S.string(c) for c in routines[e]["calls"])]
+        if a.dump_frontier:
+            print("== frontier bodies (%d; >name = call to named routine) ==" % len(frontier))
+            for e in sorted(frontier):
+                print("$%04X: %s" % (e, compact_body(e, S)))
+            return
         print("== naming status (segment @ $%02X:%04X) ==" % (vbank, vaddr0))
         print("routines: %d   named: %d   unnamed: %d" % (len(routines), len(named), len(unn)))
         print("naming frontier (unnamed, all callees named): %d" % len(frontier))
