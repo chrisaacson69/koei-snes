@@ -27,12 +27,14 @@ class Symbols:
             self.load(data_dir)
 
     def load(self, data_dir):
-        sp = os.path.join(data_dir, "strings.toml")
-        if os.path.exists(sp):
-            for line in open(sp, encoding="utf-8"):
-                line = line.split("#", 1)[0]
-                for a, name in _LINE.findall(line):
-                    self.strings[int(a, 0)] = name
+        # strings.toml + routines.toml both map addr -> label (strings/data/routine names)
+        for fn in ("strings.toml", "routines.toml"):
+            p = os.path.join(data_dir, fn)
+            if os.path.exists(p):
+                for line in open(p, encoding="utf-8"):
+                    line = line.split("#", 1)[0]
+                    for a, name in _LINE.findall(line):
+                        self.strings.setdefault(int(a, 0), name)
         ep = os.path.join(data_dir, "enums.py")
         if os.path.exists(ep):
             ns = {}

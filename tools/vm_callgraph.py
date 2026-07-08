@@ -34,6 +34,7 @@ def main(argv):
     ap = argparse.ArgumentParser()
     ap.add_argument("rom"); ap.add_argument("--start", required=True); ap.add_argument("--base", required=True)
     ap.add_argument("--leaves", action="store_true"); ap.add_argument("--syms", default=None)
+    ap.add_argument("--dump-leaves", dest="dump_leaves", action="store_true")
     ap.add_argument("--scan", type=lambda s: int(s, 16), default=None,
                     help="also seed from every direct-call target found up to this END addr")
     a = ap.parse_args(argv[1:])
@@ -56,7 +57,7 @@ def main(argv):
         return 1 + psz[op]
 
     def walk_routine(entry):
-        starts, interior, calls, indirect, conflict = set(), set(), set(), 0, 0
+        starts, interior, calls, indirect, conflict, order = set(), set(), set(), 0, 0, []
         work = [entry]
         while work:
             v = work.pop()
@@ -69,7 +70,7 @@ def main(argv):
                     ln = declen(v)
                 except Exception:
                     conflict += 1; break
-                starts.add(v)
+                starts.add(v); order.append(v)
                 for k in range(1, ln):
                     interior.add(v + k)
                 op, nxt = read(v), v + ln
@@ -86,7 +87,7 @@ def main(argv):
                 if op in BREL_C:
                     work.append(nxt + s8(read(v + 1)))
                 v = nxt
-        return dict(size=len(starts), calls=calls, indirect=indirect, conflict=conflict)
+        return dict(size=len(starts), calls=calls, indirect=indirect, conflict=conflict, order=order)
 
     seeds = [vaddr0]
     if a.scan:                       # collect every direct-call target across the code region
@@ -124,6 +125,26 @@ def main(argv):
         for e in sorted(leaves):
             print("  $%02X:%04X  (%d insns, %s)" % (vbank, e, routines[e]["size"],
                   "indirect" if routines[e]["indirect"] else "pure leaf"))
+    if a.dump_leaves:
+        from symbols import Symbols
+        S = Symbols(a.syms)
+        print("\n== leaf bodies (compact; %d leaves) ==" % len(leaves))
+        for e in sorted(leaves):
+            parts = []
+            for v in sorted(routines[e]["order"]):
+                op = read(v)
+                if op == D.EXT_PREFIX:
+                    parts.append(D.EXT_NAMES.get(read(v + 1), "ext%02X" % read(v + 1))); continue
+                m = D.mnem(op).split()[0]
+                ln = declen(v)
+                if ln == 3:
+                    val = read(v + 1) | (read(v + 2) << 8)
+                    lbl = S.string(val)
+                    m += "=" + (lbl if lbl else "$%04X" % val)
+                elif ln == 2:
+                    m += " $%02X" % read(v + 1)
+                parts.append(m)
+            print("$%04X: %s" % (e, "  ".join(parts)))
 
 
 if __name__ == "__main__":
