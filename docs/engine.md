@@ -58,3 +58,11 @@ Add a `games.toml` block: find the `$8000` ABI, the interpreter loop + its 256-e
 table, the `$B7` extended table, the syscall table (after the 22-byte param copy), and
 the fetch helpers. The opcode *meanings* (`vm_opcode_names.toml`) are shared; only
 addresses and any drifted opcode variants change.
+
+## Reference — goto-free structuring (DREAM)
+`tools/vm_struct.py` does follow-node structuring (~65-75% goto-less; loops remain). The
+path to 100% goto-free is DREAM's *reaching-condition* structuring (not node splitting /
+tail duplication). Paper + synthesis: vault `research/reverse-engineering/dream-goto-free-
+structuring.md`; local PDF `Vault/raw/papers/dream_ndss2015.pdf`. Key: DREAM is the
+authors' own successor to REcompile's node-splitting (the $XXXX.0/.1 shared-tail-copy
+idea) -- reaching conditions emit a shared tail once, guarded by its condition, no copies.
