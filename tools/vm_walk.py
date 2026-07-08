@@ -27,6 +27,7 @@ JMP_ABS = {0xD6}
 BREL_UNCOND = {0xE3, 0xE6}
 BREL_COND = {0xD8, 0xE5, 0xE4, 0xE7}
 SWITCH = {0xD5, 0xD9, 0xE8}
+CALL = {0xE9, 0xAC}          # hostcall/call.n: operand[0:2] = a bytecode subroutine entry
 
 
 def s8(b):
@@ -78,6 +79,11 @@ def main(argv):
                 rets.append(nxt); break
             if op in SWITCH:
                 switches.append(v); break
+            if op in CALL:                       # bytecode subroutine call -> follow target, then continue
+                t = read(v + 1) | (read(v + 2) << 8)
+                if t not in starts:
+                    work.append(t)
+                v = nxt; continue
             if op in JMP_ABS:
                 t = read(v + 1) | (read(v + 2) << 8)
                 if t not in starts:
