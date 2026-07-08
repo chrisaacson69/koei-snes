@@ -22,6 +22,7 @@ _LINE = re.compile(r'(0x[0-9A-Fa-f]+)\s*=\s*"([^"]+)"')
 class Symbols:
     def __init__(self, data_dir=None):
         self.strings, self.syscalls = {}, {}
+        self.tables, self.table_base = {}, {}      # name->{idx:label}, addr->name
         if data_dir:
             self.load(data_dir)
 
@@ -37,6 +38,10 @@ class Symbols:
             ns = {}
             exec(compile(open(ep, encoding="utf-8").read(), ep, "exec"), ns)
             self.syscalls = ns.get("SYSCALLS", {})
+            self.tables = ns.get("STRING_TABLES", {})
+            for name, base in ns.get("STRING_TABLE_BASE", {}).items():
+                self.table_base[base] = name
+                self.strings.setdefault(base, "tbl_" + name)   # base addr -> table name
 
     def string(self, addr):
         return self.strings.get(addr)
