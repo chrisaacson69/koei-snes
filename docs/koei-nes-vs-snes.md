@@ -40,3 +40,38 @@ Decoded each SNES handler as native code and **compared** to the NES — never d
 from it. The engine drifts slightly between titles/platforms, so the exact table is
 always read from the target ROM; the NES is the cross-check that catches drift, not the
 source of truth. The 218-vs-217/219 and per-opcode matches are *confirmations*.
+
+## Game mechanics — did they change? (NES ROTK2 vs SNES port, 2026-07-08)
+
+Cross-checked the SNES reconstruction against the NES `rot3k2-decompiler` + `koei-nes`.
+Verdict: **faithful engine + architecture port with a graphical facelift; NOT a mechanics
+rewrite.** Three layers:
+
+**1. VM opcodes — byte-for-byte the same.** Every control/call op sits at the identical
+opcode byte on both machines: `$E9` hostcall, `$AC` call, `$DD`/`$EA` call.ind, `$CF`
+ret, `$D5`/`$D9` switch, `$D6` jmp, `$D8` brz, `$B7` 32-bit prefix, `$00-3F` frame matrix.
+Counts: NES **219** vs SNES **218** (256 minus the nop slots). Same instruction set, same
+numbers -- a bytecode routine uses the same opcodes on both.
+
+**2. Architecture — the same shape.** NES: **bank 1 = resident `$8000` strategic library**
+(`run_turn_loop`, `dispatch_command`, AI scorers, diplomacy) + command apps in banks 2-7,
+21 dispatched by category (war=2, domestic=5, diplo=6, invest=7), and **bank 8 = battle
+library** + apps 9-12. SNES: **root = resident shared library** + **overlay command apps**
+(comroot=AI, excsub1-6 = diplomacy/officer/combat events) dispatched via `call.ind`. The
+NES "bank-per-command-app" simply became "overlay-per-command-app" -- a *mechanism* swap
+forced by MMC5-banking vs WRAM-overlays, over an *identical* strategic-library + dispatch
++ turn-loop design.
+
+**3. Data model — mostly identical, one real change.**
+- **Province record: stride 25 on BOTH** (NES base `$73F4`, SNES `$F424`) -- identical
+  layout; count 41 (ROTK2 standard). (Corrects an earlier note that guessed NES = 49x24;
+  that was NA1's fief schema, not ROTK2.)
+- **Officer record GREW: NES stride 21 -> SNES stride 34.** This is the one substantive
+  divergence -- the SNES officer record is 13 bytes larger. (Note: 34 == the NES *ruler*
+  stride, so the SNES may have unified officer/ruler to the larger record, or added
+  officer fields; a field-level diff would confirm which.)
+
+**Where the SNES effort went:** the *facelift* -- **69 SNES syscalls vs ~31 NES** (DMA,
+Mode 7, byte-plane VRAM, SPC700 audio) and the UI. Presentation was rebuilt; the strategy
+engine, turn loop, command dispatch, AI evaluation, and combat structure were ported. So:
+**faithful port + facelift, plus an expanded officer record.**
