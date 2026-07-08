@@ -1,0 +1,7 @@
+# ROMs are never committed
+*.sfc
+*.smc
+*.swc
+*.fig
+__pycache__/
+*.pyc

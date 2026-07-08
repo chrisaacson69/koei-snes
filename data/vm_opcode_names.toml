@@ -1,0 +1,75 @@
+# ============================================================================
+# ROTK2 SNES bytecode VM — complete opcode reference (decoded from native code).
+# The cornerstone for all KOEI SNES titles: a register-machine bytecode engine.
+#   regA=$0A regB=$0C regC=$0E reg32(W)=$12-15 W2=$16-17 ; frame=$04 ; PC=$06:$08
+#   operand stack via PHA/PLA. 218 real primary handlers (256 - 38 $A082 nop slots).
+# PRIMARY table $A0E6 (main loop $9A8F). EXTENDED table $A2FE (via opcode $B7 = 32-bit).
+# Decoded from the SNES ROM directly; NES comparison notes at the bottom.
+# ============================================================================
+
+[primary_ranges]              # 0-operand; offset baked in the opcode
+"00-0F" = "load  regA = frame[n]"
+"10-1F" = "load  regC = frame[n]"
+"20-2F" = "store frame[n] = regA"
+"30-3F" = "push  frame[n]"
+"40-7F" = "loadc regA = (op & 0x0F)"
+
+[primary]                     # 0x80-0xEA (0x91-0x9F,0xB2,0xCE,0xEB-0xFF -> $A082 nop)
+# --- load / store / push (odd op = 1-byte operand, even = 2-byte) ---
+0x81="ldA g8"; 0x82="ldA g16"; 0x83="ldC g8"; 0x84="ldC g16"
+0x85="stA g8"; 0x86="stA g16"; 0x87="push g8"; 0x88="push g16"
+0x89="ldA #i8"; 0x8A="ldA #i16"; 0x8B="ldC #i8"; 0x8C="ldC #i16"
+0x8D="push #i8"; 0x8E="push #i16"; 0x8F="addA #i8"; 0x90="addA #i16"
+0xA0="ldA.b L"; 0xA1="ldC.b L"; 0xA2="stA.b L"; 0xA3="push.b L"
+0xA4="ldA.w L"; 0xA5="ldA.b L'"; 0xA6="ldC.w L"; 0xA7="ldC.b L"
+0xA8="stA.w L"; 0xA9="stA.b L"; 0xAA="push.w L"; 0xAB="push.b L"
+0xAD="blkcopy"; 0xDE="ldA g16'"; 0xDF="ldC g16'"
+0xB0="ldA.mem"; 0xB1="stA.w[pop]"; 0xB3="pushA"; 0xB4="popC"
+0xD3="ldA.b[p]"; 0xD4="stA.b[pop]"
+# --- frame / stack setup ---
+0xAE="sp_adj #i8"; 0xAF="sp_adj #i16"    # reserve/free stack (C-style prologue/epilogue)
+# --- arithmetic (regA = regA OP regC) ---
+0xBB="add"; 0xBC="sub"; 0xDA="and"; 0xDB="or"; 0xDC="xor"
+0xBD="mul"; 0xBE="shr"; 0xBF="sar"; 0xB5="mul16"
+0xB6="sdivmod"; 0xB8="udivmod"; 0xB9="sdiv"; 0xBA="udiv"
+0xE0="mul32 #"; 0xE1="sdiv32 #"; 0xE2="udiv32 #"
+0xCB="neg"; 0xCC="not"; 0xCA="lnot"; 0xD0="inc"; 0xD1="dec"; 0xD2="shl"; 0xCD="swapAC"
+# --- compares (all leave regA = 0 or 1) ---
+0xC0="eq"; 0xC1="ne"; 0xC2="ge.s"; 0xC3="gt.s"; 0xC4="le.s"; 0xC5="lt.s"
+0xC6="ge.u"; 0xC7="gt.u"; 0xC8="le.u"; 0xC9="lt.u"
+# --- control flow ---
+0xD6="jmp a16"          # goto (PC = imm16)
+0xE6="brel r8"; 0xE3="brel r8'"          # unconditional PC-relative
+0xD8="brz r8"; 0xE5="brz r8'"            # branch if regA == 0, relative
+0xE4="brnz r8"; 0xE7="brnz r8'"          # branch if regA != 0, relative
+0xD7="skipnz"                             # skip operand if regA != 0
+0xD5="switch"; 0xD9="switch2"; 0xE8="switch3"   # computed jump vs regA bounds
+# --- call / return (bytecode <-> native bridge) ---
+0xAC="call.n a16"       # call native routine at imm16 (root's $23xx services)
+0xE9="hostcall a16,i8"  # host-call native + 1-byte arg   == NES $E9 host-call
+0xDD="call.ind"; 0xEA="call.ind2"        # call via regA / indirect
+0xCF="ret"              # restore frame ($04->SP), JML back
+0xB7="ext"              # extended-opcode prefix -> $A2FE (32-bit math)
+
+[extended]                    # table $A2FE, reached via $B7. reg32 = W ($12-15).
+0x01="mul32"; 0x02="smul32"; 0x03="add32"; 0x04="sub32"; 0x05="neg32"
+0x06="eq32"; 0x07="ne32"; 0x08="lt.s32"; 0x09="le.s32"; 0x0A="gt.s32"; 0x0B="ge.s32"
+0x0C="ldW g16"; 0x0D="ldW2 g16"; 0x0E="stW g16"; 0x0F="push32 g16"
+0x10="ldW.b L"; 0x11="ldW2.b L"; 0x12="stW L"; 0x13="push32 L"
+0x14="stW.p"; 0x15="pop32"; 0x16="stW.pA"; 0x17="pop32'"
+0x18="ldW #i32"; 0x19="ldW2 #i32"; 0x1A="swap32"; 0x1B="add32r"; 0x1C="add32c"
+0x1D="cmp.s32"; 0x1E="smul32'"; 0x1F="neg32'"; 0x20="abs32"
+0x21="xor32"; 0x22="and32"; 0x23="or32"; 0x24="xor32'"
+0x25="sign32"; 0x26="clrW2"; 0x27="nop"; 0x28="cmp32"
+0x29="ge.u32"; 0x2A="lt.u32"; 0x2B="le.u32"; 0x2C="gt.u32"; 0x2D="add32'"; 0x2E="div32"; 0x2F="smul32''"
+
+# ============================================================================
+# NES COMPARISON (../rot3k2-decompiler, checked NOT derived):
+#  - $E9 = host-call on BOTH platforms.
+#  - Primary ALU/compare/frame layout matches the NES ($00-3F frame, $B0-DC ALU).
+#  - $B7 extended prefix -> a 32-bit-math subtable on BOTH (~47 ops).
+#  - 218 primary handlers vs NES 217-219 (the extra $A082 nops absorb the diff).
+#  Same engine; medium-confidence variants (which mul/div flavor, blkcopy exact,
+#  switch2/3 forms) still to pin by re-read. Alignment of full module disassembly
+#  needs a recursive-descent bytecode walker (linear crosses routine/data gaps).
+# ============================================================================

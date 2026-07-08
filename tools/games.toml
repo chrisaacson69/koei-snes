@@ -1,0 +1,33 @@
+# KOEI SNES engine — per-title profiles. The bytecode VM is shared across titles;
+# only these addresses move (the engine is relocated/reassembled per game). Add a
+# block per title; the tools take --game <name> (default: first/only entry).
+#
+# Discover a new title's constants with the snes-decompiler + koei-snes tools:
+#   header/mapping        -> snes-decompiler/tools/header_parse.py
+#   $00:8000 ABI table    -> disasm the 4 JMPs before RESET
+#   interpreter_loop      -> the $9A8F-style fetch: LDA [$06]/INC $06/JMP (table,X)
+#   primary/extended tbl  -> the table the loop indexes (256 entries) + the $B7 target
+#   syscall_table         -> JSR ($xxxx,X) after the 22-byte param-block copy
+#   fetch_helpers         -> the subs each doing LDA [$06] + INC $06 (1 or 2 bytes)
+
+[rot3k2]
+title        = "Romance of the Three Kingdoms II (USA)"
+mapping      = "lorom"
+rom_bytes    = 1048576
+reset        = 0x800C
+abi_table    = 0x8000        # 4 JMP trampolines: run-VM / syscall / ext-op x2
+interpreter_loop  = 0x9A8F   # main fetch-decode-dispatch
+ext_interpreter   = 0xA2E6   # $B7 prefix lands here
+primary_table     = 0xA0E6   # 256 entries ($A0E6..$A2E5)
+extended_table    = 0xA2FE   # 48 entries (32-bit math)
+extended_prefix   = 0xB7
+invalid_handler   = 0xA082   # shared nop/invalid (38 unused opcodes -> 218 real)
+syscall_table     = 0x937B   # 69 entries
+syscall_count     = 69
+syscall_dispatch  = 0x8C1D
+run_vm_entry      = 0x9A4C
+resource_archive  = 0xF800   # named-blob directory (root/comroot/excsub/...)
+loader            = 0x9636   # cross-bank block copy -> WRAM (self-mod MVN at $006C)
+code_span         = [0x800C, 0xB20A]   # native engine extent (rest of bank $00 = data)
+# operand-fetch helpers -> bytes each pulls from the bytecode PC ($06)
+fetch_helpers = { 0xA089 = 1, 0xA09B = 1, 0xA0BC = 2, 0xA0C4 = 2, 0xA0CE = 2 }
