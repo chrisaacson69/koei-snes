@@ -35,6 +35,7 @@ def main(argv):
     ap.add_argument("rom"); ap.add_argument("--start", required=True); ap.add_argument("--base", required=True)
     ap.add_argument("--leaves", action="store_true"); ap.add_argument("--syms", default=None)
     ap.add_argument("--dump-leaves", dest="dump_leaves", action="store_true")
+    ap.add_argument("--unnamed", action="store_true", help="report named/unnamed + naming frontier")
     ap.add_argument("--scan", type=lambda s: int(s, 16), default=None,
                     help="also seed from every direct-call target found up to this END addr")
     a = ap.parse_args(argv[1:])
@@ -111,6 +112,22 @@ def main(argv):
             if c not in routines:
                 work.append(c)
 
+    if a.unnamed:
+        from symbols import Symbols
+        S = Symbols(a.syms)
+        named = [e for e in routines if S.string(e)]
+        unn = [e for e in routines if not S.string(e)]
+        # naming frontier: unnamed routines all of whose callees ARE named (ready to name)
+        frontier = [e for e in unn if all(S.string(c) for c in routines[e]["calls"])]
+        print("== naming status (segment @ $%02X:%04X) ==" % (vbank, vaddr0))
+        print("routines: %d   named: %d   unnamed: %d" % (len(routines), len(named), len(unn)))
+        print("naming frontier (unnamed, all callees named): %d" % len(frontier))
+        print("\nfrontier (name these next; size, #calls):")
+        for e in sorted(frontier)[:40]:
+            r = routines[e]
+            print("  $%04X  (%d insns, %d calls%s)" % (e, r["size"], len(r["calls"]),
+                  ", indirect" if r["indirect"] else ""))
+        return
     leaves = [e for e, r in routines.items() if not r["calls"]]
     with_ind = [e for e, r in routines.items() if r["indirect"]]
     print("== bytecode call-graph from $%02X:%04X ==" % (vbank, vaddr0))
