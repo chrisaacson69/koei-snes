@@ -87,10 +87,13 @@ def mnem(op):
 
 
 def main(argv):
+    from symbols import Symbols
     ap = argparse.ArgumentParser()
     ap.add_argument("rom"); ap.add_argument("--start", required=True)
     ap.add_argument("--base", default=None); ap.add_argument("-n", "--count", type=int, default=40)
+    ap.add_argument("--syms", default=None, help="title data dir (strings.toml + enums.py) for name annotations")
     a = ap.parse_args(argv[1:])
+    S = Symbols(a.syms)
     rom, _ = strip_copier_header(open(a.rom, "rb").read()); V.rom = rom
     pbase = cpu_to_file(LOROM, 0, PRIMARY); ebase = cpu_to_file(LOROM, 0, EXTENDED)
     prim = [rom[pbase + 2*i] | (rom[pbase + 2*i+1] << 8) for i in range(256)]
@@ -120,6 +123,11 @@ def main(argv):
             elif sz >= 1 and op in REL_OPS and va:
                 d = operand[0] - 256 if operand[0] & 0x80 else operand[0]
                 ops += "   ; -> $%04X" % ((va[1] + (1 + sz) + d) & 0xFFFF)
+            # symbol annotation: a 2-byte operand that matches a known string/global
+            if sz >= 2 and op not in JMP_OPS and op not in CALL_OPS:
+                lbl = S.string(operand[0] | (operand[1] << 8))
+                if lbl:
+                    ops += "   ; =%s" % lbl
             txt = mnem(op) + ops
             ln = 1 + sz
         raw = " ".join("%02X" % rom[off + k] for k in range(ln))

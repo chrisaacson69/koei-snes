@@ -37,6 +37,7 @@ def main(argv):
     ap = argparse.ArgumentParser()
     ap.add_argument("rom"); ap.add_argument("--start", required=True); ap.add_argument("--base", required=True)
     ap.add_argument("--list", action="store_true")
+    ap.add_argument("--syms", default=None, help="title data dir for name annotations")
     ap.add_argument("--auto", type=lambda s: int(s, 16), default=None,
                     help="auto-cover: END virtual addr; seed each ret+1 as a new routine entry")
     a = ap.parse_args(argv[1:])
@@ -113,15 +114,22 @@ def main(argv):
         print("data gaps            : " + ", ".join("$%04X-$%04X(%d)" % (g0, g1, g1 - g0) for g0, g1 in gaps[:12]))
 
     if a.list:
+        from symbols import Symbols
+        S = Symbols(a.syms)
         print("\n== reachable disassembly ==")
         for v in sorted(starts):
             ln = starts[v]; raw = " ".join("%02X" % read(v + k) for k in range(ln))
             op = read(v)
+            ann = ""
             if op == D.EXT_PREFIX:
                 nm = D.EXT_NAMES.get(read(v + 1), "ext_%02X" % read(v + 1))
             else:
                 nm = D.mnem(op)
-            print("$%02X:%04X  %-11s %s" % (vbank, v, raw, nm))
+                if ln >= 3:                               # 2-byte operand -> maybe a string/global
+                    lbl = S.string(read(v + 1) | (read(v + 2) << 8))
+                    if lbl:
+                        ann = "   ; =%s" % lbl
+            print("$%02X:%04X  %-11s %s%s" % (vbank, v, raw, nm, ann))
 
 
 if __name__ == "__main__":
