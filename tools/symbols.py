@@ -27,6 +27,16 @@ class Symbols:
             self.load(data_dir)
 
     def load(self, data_dir):
+        self._load_dir(data_dir)
+        # `root` is the RESIDENT shared library: overlays (comroot/settei/... at $7xxx+)
+        # call root's routines directly by absolute address ($2xxx-$6xxx). Addresses are
+        # disjoint, so also load root's symbols so cross-module calls render by name.
+        if os.path.basename(os.path.normpath(data_dir)) != "root":
+            root_dir = os.path.join(os.path.dirname(os.path.normpath(data_dir)), "root")
+            if os.path.isdir(root_dir):
+                self._load_dir(root_dir)
+
+    def _load_dir(self, data_dir):
         # strings.toml + routines.toml both map addr -> label (strings/data/routine names)
         for fn in ("strings.toml", "routines.toml"):
             p = os.path.join(data_dir, fn)
@@ -39,8 +49,9 @@ class Symbols:
         if os.path.exists(ep):
             ns = {}
             exec(compile(open(ep, encoding="utf-8").read(), ep, "exec"), ns)
-            self.syscalls = ns.get("SYSCALLS", {})
-            self.tables = ns.get("STRING_TABLES", {})
+            if not self.syscalls:
+                self.syscalls = ns.get("SYSCALLS", {})
+            self.tables.update(ns.get("STRING_TABLES", {}))
             for name, base in ns.get("STRING_TABLE_BASE", {}).items():
                 self.table_base[base] = name
                 self.strings.setdefault(base, "tbl_" + name)   # base addr -> table name
