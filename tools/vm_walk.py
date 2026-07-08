@@ -25,6 +25,7 @@ import vm_opcodes as V
 
 RET = {0xCF}
 JMP_ABS = {0xD6}
+CJMP_ABS = {0xD7}            # skipnz: if regA!=0 JMP <abs16>, else fall through
 BREL_UNCOND = {0xE3, 0xE6}
 BREL_COND = {0xD8, 0xE5, 0xE4, 0xE7}
 SWITCH = {0xD5, 0xD9, 0xE8}
@@ -78,16 +79,25 @@ def main(argv):
             op = read(v); nxt = v + ln
             if op in RET:
                 rets.append(nxt); break
-            if op in SWITCH:                     # inline jump table: <base i16><count u16><target u16 x count+1>
+            if op in SWITCH:                     # two formats (see vm_callgraph / native handlers)
                 switches.append(v)
-                cnt = read(v + 3) | (read(v + 4) << 8)
-                if cnt <= 64:
-                    for i in range(cnt + 1):
-                        t = read(v + 5 + 2*i) | (read(v + 6 + 2*i) << 8)
-                        if t not in starts:
-                            work.append(t)
+                r16 = lambda a: read(a) | (read(a + 1) << 8)
+                if op == 0xD5:                   # indexed: <base i16><bound u16><target u16 x bound+1>
+                    bound = r16(v + 3)
+                    tgts = [r16(v + 5 + 2*i) for i in range(bound + 1)] if bound <= 64 else []
+                else:                            # D9/E8 key-value: <count u16><(key,target) x count><default>
+                    cnt = r16(v + 1)
+                    tgts = ([r16(v + 3 + 4*i + 2) for i in range(cnt)] + [r16(v + 3 + 4*cnt)]) if cnt <= 64 else []
+                for t in tgts:
+                    if t not in starts:
+                        work.append(t)
                 break
             if op in CALL:                       # bytecode subroutine call -> follow target, then continue
+                t = read(v + 1) | (read(v + 2) << 8)
+                if t not in starts:
+                    work.append(t)
+                v = nxt; continue
+            if op in CJMP_ABS:                   # conditional absolute jump: target + fall-through
                 t = read(v + 1) | (read(v + 2) << 8)
                 if t not in starts:
                     work.append(t)

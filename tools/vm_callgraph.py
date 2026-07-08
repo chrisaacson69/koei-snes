@@ -22,7 +22,8 @@ import vm_disasm as D
 import vm_opcodes as V
 
 RET = {0xCF}; SWITCH = {0xD5, 0xD9, 0xE8}
-JMP_ABS = {0xD6}; BREL_U = {0xE3, 0xE6}; BREL_C = {0xD8, 0xE5, 0xE4, 0xE7}
+JMP_ABS = {0xD6}; CJMP_ABS = {0xD7}         # skipnz: if regA!=0 JMP <abs16>, else fall through
+BREL_U = {0xE3, 0xE6}; BREL_C = {0xD8, 0xE5, 0xE4, 0xE7}
 DIRECT_CALL = {0xE9, 0xAC}; INDIRECT_CALL = {0xDD, 0xEA}
 
 
@@ -59,12 +60,25 @@ def main(argv):
             return 2 + (D.opsize(ext[eo]) if eo < len(ext) else 0)
         return 1 + psz[op]
 
+    def r16(a):
+        return read(a) | (read(a + 1) << 8)
+
     def switch_targets(v):
-        # inline jump table: D5/D9/E8 <base:i16> <count:u16> <target:u16 x (count+1)>
-        count = read(v + 3) | (read(v + 4) << 8)
+        # Two inline-table formats (from the native handlers):
+        #  switch  $D5: indexed   <base:i16><bound:u16><target:u16 x (bound+1)>
+        #  switch2 $D9 / switch3 $E8: key-value <count:u16><(key:u16,target:u16) x count><default:u16>
+        op = read(v)
+        if op == 0xD5:
+            bound = r16(v + 3)
+            if bound > 64:
+                return []
+            return [r16(v + 5 + 2*i) for i in range(bound + 1)]
+        count = r16(v + 1)
         if count > 64:
             return []
-        return [read(v + 5 + 2*i) | (read(v + 6 + 2*i) << 8) for i in range(count + 1)]
+        tgts = [r16(v + 3 + 4*i + 2) for i in range(count)]   # target of each (key,target) pair
+        tgts.append(r16(v + 3 + 4*count))                     # trailing default target
+        return tgts
 
     def walk_routine(entry):
         starts, interior, calls, indirect, conflict, order = set(), set(), set(), 0, 0, []
@@ -94,6 +108,8 @@ def main(argv):
                     calls.add(read(v + 1) | (read(v + 2) << 8)); v = nxt; continue
                 if op in INDIRECT_CALL:
                     indirect += 1; v = nxt; continue
+                if op in CJMP_ABS:                   # conditional absolute jump: target + fall-through
+                    work.append(read(v + 1) | (read(v + 2) << 8)); v = nxt; continue
                 if op in JMP_ABS:
                     work.append(read(v + 1) | (read(v + 2) << 8)); break
                 if op in BREL_U:
