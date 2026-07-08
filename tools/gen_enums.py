@@ -48,9 +48,12 @@ def parse_string_tables(path):
 
 
 def main(argv):
-    tdir = argv[1] if len(argv) > 1 else "."
-    d = os.path.join(tdir, "data")
-    sc = parse_syscalls(os.path.join(d, "syscall_names.toml"))
+    # argv[1] = a MODULE data dir (e.g. .../data/root). syscall_names.toml is shared:
+    # look in the module dir, else the parent data/ (native syscalls are title-global).
+    d = argv[1] if len(argv) > 1 else "."
+    sc_here = os.path.join(d, "syscall_names.toml")
+    sc_path = sc_here if os.path.exists(sc_here) else os.path.join(os.path.dirname(d), "syscall_names.toml")
+    sc = parse_syscalls(sc_path)
     tab = parse_string_tables(os.path.join(d, "strings.toml"))
     dst = os.path.join(d, "enums.py")
     with open(dst, "w", encoding="utf-8") as f:
