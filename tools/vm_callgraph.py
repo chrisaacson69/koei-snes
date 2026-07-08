@@ -57,6 +57,13 @@ def main(argv):
             return 2 + (D.opsize(ext[eo]) if eo < len(ext) else 0)
         return 1 + psz[op]
 
+    def switch_targets(v):
+        # inline jump table: D5/D9/E8 <base:i16> <count:u16> <target:u16 x (count+1)>
+        count = read(v + 3) | (read(v + 4) << 8)
+        if count > 64:
+            return []
+        return [read(v + 5 + 2*i) | (read(v + 6 + 2*i) << 8) for i in range(count + 1)]
+
     def walk_routine(entry):
         starts, interior, calls, indirect, conflict, order = set(), set(), set(), 0, 0, []
         work = [entry]
@@ -75,7 +82,11 @@ def main(argv):
                 for k in range(1, ln):
                     interior.add(v + k)
                 op, nxt = read(v), v + ln
-                if op in RET or op in SWITCH:
+                if op in SWITCH:                     # inline jump table -> case blocks are local
+                    for t in switch_targets(v):
+                        work.append(t)
+                    break
+                if op in RET:
                     break
                 if op in DIRECT_CALL:
                     calls.add(read(v + 1) | (read(v + 2) << 8)); v = nxt; continue

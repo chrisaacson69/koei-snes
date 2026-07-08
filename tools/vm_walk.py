@@ -9,8 +9,9 @@ in the routine's span is DATA. Conflicts (a branch target landing inside an alre
 decoded instruction) flag a bad decode or a data region -- the second, independent
 method for telling code from data.
 
-call.n / hostcall / call.ind target NATIVE routines and return, so the walk continues
-past them (it does not follow into native). switch (computed jump) is unresolved -> stop.
+call.n / hostcall are bytecode subroutine calls: the walk follows the target and
+continues past the call. switch (D5/D9/E8) is an inline jump table -> its case targets
+are parsed and followed (local control flow). call.ind/ind2 (regA) stay unresolved.
 
     py -3 tools/vm_walk.py "<rom>.sfc" --start 01:8008 --base 7E:2008 [--list]
 """
@@ -77,8 +78,15 @@ def main(argv):
             op = read(v); nxt = v + ln
             if op in RET:
                 rets.append(nxt); break
-            if op in SWITCH:
-                switches.append(v); break
+            if op in SWITCH:                     # inline jump table: <base i16><count u16><target u16 x count+1>
+                switches.append(v)
+                cnt = read(v + 3) | (read(v + 4) << 8)
+                if cnt <= 64:
+                    for i in range(cnt + 1):
+                        t = read(v + 5 + 2*i) | (read(v + 6 + 2*i) << 8)
+                        if t not in starts:
+                            work.append(t)
+                break
             if op in CALL:                       # bytecode subroutine call -> follow target, then continue
                 t = read(v + 1) | (read(v + 2) << 8)
                 if t not in starts:
