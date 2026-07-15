@@ -82,7 +82,12 @@ def mnem(op):
     if op <= 0x1F: return "load    fC[%X]" % (op & 0xF)
     if op <= 0x2F: return "store   fA[%X]" % (op & 0xF)
     if op <= 0x3F: return "push    f[%X]" % (op & 0xF)
-    if op <= 0x7F: return "loadc   %d" % (op & 0xF)
+    # $40-$7F: four distinct nibble-immediate ops (verified: handlers $A4DE/$A4EC/$A4F1/$A502;
+    # $40=STY regA, $50=STY regC, $60=push, $70=fetch+add). Low nibble is the immediate.
+    if op <= 0x4F: return "ldA    #$%X" % (op & 0xF)
+    if op <= 0x5F: return "ldC    #$%X" % (op & 0xF)
+    if op <= 0x6F: return "push   #$%X" % (op & 0xF)
+    if op <= 0x7F: return "addA   #$%X" % (op & 0xF)
     return NAMES.get(op, "op_%02X" % op)
 
 

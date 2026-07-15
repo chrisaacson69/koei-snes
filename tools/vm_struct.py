@@ -151,10 +151,17 @@ def main(argv):
             op = read(v); ln = declen(v); m = D.mnem(op); base = m.split()[0]; nx = v + ln
             val = (read(v + 1) | (read(v + 2) << 8)) if ln == 3 else (read(v + 1) if ln == 2 else None)
             fr = m.split(None, 1)[1].strip().replace("[", "_").replace("]", "") if " " in m else "f"
+            if 0x40 <= op <= 0x7F:                       # nibble-immediate family (value = low nibble)
+                nib = "$%X" % (op & 0x0F); fam = op >> 4
+                if fam == 0x4: regA = nib                 # ldA #n
+                elif fam == 0x5: regC = nib               # ldC #n
+                elif fam == 0x6: st.append(nib)           # push #n
+                else: regA = "(%s + %s)" % (regA, nib)    # addA #n
+                v = nx; continue
             if base == "load": regA = fr
             elif base == "store": out.append("%s = %s;" % (fr, regA))
             elif base in ("pushA", "push", "push.w", "push.b"): st.append(S.string(val) if val is not None and S.string(val) else (regA if base == "pushA" else ("$%X" % val if val is not None else regA)))
-            elif base in ("loadc", "ldA", "ldA.b", "ldA.w"): regA = (S.string(val) or ("$%X" % val if val is not None else "0"))
+            elif base in ("ldA", "ldA.b", "ldA.w"): regA = (S.string(val) or ("$%X" % val if val is not None else "0"))
             elif base == "ldA.mem": regA = "mem[%s]" % regA
             elif base == "ldC": regC = (S.string(val) or ("$%X" % val if val is not None else "0"))
             elif base == "popC": regC = st.pop() if st else "top"

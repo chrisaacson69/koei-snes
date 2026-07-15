@@ -112,7 +112,7 @@ def main(argv):
             elif base in ("pushA", "push", "push.w", "push.b"):
                 sym = S.string(opnd()) if opnd() is not None else None
                 st.append(sym or (regA if base == "pushA" else ("$%X" % opnd() if opnd() is not None else regA)))
-            elif base in ("loadc", "ldA", "ldA.b", "ldA.w", "ldA.mem"):
+            elif base in ("ldA", "ldA.b", "ldA.w", "ldA.mem"):
                 val = opnd(); sym = S.string(val) if val is not None else None
                 regA = ("mem[%s]" % regA) if base == "ldA.mem" else (sym or ("$%X" % val if val is not None else "0"))
             elif base in ("ldC",):
