@@ -97,6 +97,14 @@ def main(argv):
                 return None
             def frameref():
                 return m.split(None, 1)[1].strip().replace("[", "_").replace("]", "") if " " in m else "f"
+            if 0x40 <= op <= 0x7F:                       # nibble-immediate family: value = low nibble
+                nib = "$%X" % (op & 0x0F)                 # (NOT an operand byte -- the mnemonic "loadc" is a legacy label)
+                fam = op >> 4
+                if fam == 0x4:   regA = nib               # ldA #n
+                elif fam == 0x5: regC = nib               # ldC #n
+                elif fam == 0x6: st.append(nib)           # push #n  <- syscall ids ride here
+                else:            regA = "(%s + %s)" % (regA, nib)   # addA #n
+                v = nx; continue
             if base in ("load",):                        # load f[n] -> regA
                 regA = frameref()
             elif base in ("store",):
