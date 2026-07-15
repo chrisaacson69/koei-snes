@@ -94,11 +94,21 @@ def main(argv):
             op = read(v); ln = declen(v); m = D.mnem(op); base = m.split()[0]
             nx = v + ln
             def opnd():
+                if ln >= 4: return read(v + 1) | (read(v + 2) << 8) | (read(v + 3) << 16)   # long (24-bit) address
                 if ln == 3: return read(v + 1) | (read(v + 2) << 8)
                 if ln == 2: return read(v + 1)
                 return None
             def frameref():
                 return m.split(None, 1)[1].strip().replace("[", "_").replace("]", "") if " " in m else "f"
+            mode = m.split()[1] if len(m.split()) > 1 else ""    # g8/g16/g16'/#i8/#i16/L = addressing mode
+            def gref():          # a global/long memory operand: its name, else g_XXXX (ready for a data-walk)
+                a = opnd()
+                if a is None: return "g?"
+                return S.string(a) or S.string(a & 0xFFFF) or ("g_%04X" % a if a <= 0xFFFF else "g_%06X" % a)
+            def imm():           # an immediate: a symbol if it resolves (string/record), else the literal
+                a = opnd(); return (S.string(a) or ("$%X" % a)) if a is not None else "0"
+            def operand():       # by addressing mode: # = immediate, otherwise a memory reference
+                return imm() if mode.startswith("#") else gref()
             stmt = None
             if 0x40 <= op <= 0x7F:                       # nibble-immediate family: value = low nibble
                 nib = "$%X" % (op & 0x0F)                 # (NOT an operand byte -- the mnemonic "loadc" is a legacy label)
@@ -111,14 +121,18 @@ def main(argv):
                 regA = frameref()
             elif base in ("store",):
                 stmt = "%s = %s;" % (frameref(), regA)
-            elif base in ("pushA", "push", "push.w", "push.b"):
-                sym = S.string(opnd()) if opnd() is not None else None
-                st.append(sym or (regA if base == "pushA" else ("$%X" % opnd() if opnd() is not None else regA)))
-            elif base in ("ldA", "ldA.b", "ldA.w", "ldA.mem"):
-                val = opnd(); sym = S.string(val) if val is not None else None
-                regA = ("mem[%s]" % regA) if base == "ldA.mem" else (sym or ("$%X" % val if val is not None else "0"))
-            elif base in ("ldC",):
-                val = opnd(); regC = S.string(val) or ("$%X" % val if val is not None else "0")
+            elif base == "pushA":
+                st.append(regA)
+            elif base in ("push", "push.w", "push.b"):
+                st.append(operand())
+            elif base == "ldA.mem":
+                regA = "mem[%s]" % regA
+            elif base in ("ldA", "ldA.b", "ldA.w"):
+                regA = operand()
+            elif base in ("ldC", "ldC.b", "ldC.w"):
+                regC = operand()
+            elif base == "addA":                         # addA #i8/#i16 (byte/word immediate add)
+                regA = "(%s + %s)" % (regA, operand())
             elif base in ("popC",):
                 regC = st.pop() if st else "top"
             elif base in BINOP:
@@ -133,6 +147,8 @@ def main(argv):
                 stmt = "%s = %s(%s);" % (regA, fn, args) if base == "call.n" else "%s(%s);" % (fn, args)
             elif base in ("call.ind", "call.ind2"):
                 stmt = "(*%s)();" % regA
+            elif base in ("stA", "stA.b", "stA.w") and mode != "" and "[pop]" not in m:
+                stmt = "%s = %s;" % (gref(), regA)       # stA g8/g16 or stA.b/.w L -> store to a named global/long
             elif base in ("stA.b[pop]", "stA.w[pop]", "stA.b", "stA.w"):
                 dst = st.pop() if st else ("$%X" % opnd() if opnd() is not None else "ptr")
                 stmt = "mem[%s] = %s;" % (dst, regA)
@@ -190,7 +206,7 @@ def main(argv):
 
     def emit(entry):
         name = S.string(entry) or "sub_%04X" % entry
-        print("\nvoid %s() {" % name)
+        print("\nword %s() {" % name)          # VM routines return the accumulator (regA); word = its width
         for s in lift(entry):
             print(("  " if s.endswith(":") else "    ") + s)
         print("}")
