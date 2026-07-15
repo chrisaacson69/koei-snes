@@ -38,7 +38,7 @@ class Symbols:
 
     def _load_dir(self, data_dir):
         # strings.toml + routines.toml both map addr -> label (strings/data/routine names)
-        for fn in ("strings.toml", "routines.toml"):
+        for fn in ("strings.toml", "routines.toml", "globals.toml"):
             p = os.path.join(data_dir, fn)
             if os.path.exists(p):
                 for line in open(p, encoding="utf-8"):
