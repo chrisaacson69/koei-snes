@@ -81,14 +81,16 @@ def main(argv):
             return False
 
     def lift(entry):
-        regA, regC, st, out = "arg", "0", [], []
-        v = entry
-        # skip the native trampoline stub -> bytecode body
-        if is_entry(v):
-            v += BODY_OFF
+        regA, regC, st = "arg", "0", []
+        insns = []          # (addr, stmt or None) for the whole routine body
+        targets = set()     # goto target addresses (so we emit only referenced labels)
+        v = entry + BODY_OFF if is_entry(entry) else entry
+        body = maxtgt = v
         guard = 0
-        while guard < 400:
+        while guard < 800:
             guard += 1
+            if v != body and is_entry(v):                # reached the next routine's trampoline -> body end
+                break
             op = read(v); ln = declen(v); m = D.mnem(op); base = m.split()[0]
             nx = v + ln
             def opnd():
@@ -97,6 +99,7 @@ def main(argv):
                 return None
             def frameref():
                 return m.split(None, 1)[1].strip().replace("[", "_").replace("]", "") if " " in m else "f"
+            stmt = None
             if 0x40 <= op <= 0x7F:                       # nibble-immediate family: value = low nibble
                 nib = "$%X" % (op & 0x0F)                 # (NOT an operand byte -- the mnemonic "loadc" is a legacy label)
                 fam = op >> 4
@@ -104,11 +107,10 @@ def main(argv):
                 elif fam == 0x5: regC = nib               # ldC #n
                 elif fam == 0x6: st.append(nib)           # push #n  <- syscall ids ride here
                 else:            regA = "(%s + %s)" % (regA, nib)   # addA #n
-                v = nx; continue
-            if base in ("load",):                        # load f[n] -> regA
+            elif base in ("load",):                      # load f[n] -> regA
                 regA = frameref()
             elif base in ("store",):
-                out.append("%s = %s;" % (frameref(), regA))
+                stmt = "%s = %s;" % (frameref(), regA)
             elif base in ("pushA", "push", "push.w", "push.b"):
                 sym = S.string(opnd()) if opnd() is not None else None
                 st.append(sym or (regA if base == "pushA" else ("$%X" % opnd() if opnd() is not None else regA)))
@@ -128,35 +130,69 @@ def main(argv):
                     mi = re.match(r"\$([0-9A-Fa-f]+)$", idv)
                     fn = (SYSCALLS.get(int(mi.group(1), 16)) if mi else None) or "%s[%s]" % (fn, idv)
                 args = ", ".join(reversed([st.pop() for _ in range(min(len(st), 3))])) if st else ""
-                out.append("%s = %s(%s);" % (regA, fn, args) if base == "call.n" else "%s(%s);" % (fn, args))
+                stmt = "%s = %s(%s);" % (regA, fn, args) if base == "call.n" else "%s(%s);" % (fn, args)
             elif base in ("call.ind", "call.ind2"):
-                out.append("(*%s)();" % regA)
+                stmt = "(*%s)();" % regA
             elif base in ("stA.b[pop]", "stA.w[pop]", "stA.b", "stA.w"):
                 dst = st.pop() if st else ("$%X" % opnd() if opnd() is not None else "ptr")
-                out.append("mem[%s] = %s;" % (dst, regA))
+                stmt = "mem[%s] = %s;" % (dst, regA)
             elif base in ("brz", "brnz", "skipnz"):
                 tgt = (v + ln + s8(read(v + 1))) if base != "skipnz" else opnd()
                 cond = "!%s" % regA if base == "brz" else regA
-                out.append("if (%s) goto L%04X;" % (cond, tgt))
+                targets.add(tgt); maxtgt = max(maxtgt, tgt); stmt = "if (%s) goto L%04X;" % (cond, tgt)
             elif base in ("jmp", "brel", "brel'"):
                 tgt = (read(v + 1) | (read(v + 2) << 8)) if base == "jmp" else v + ln + s8(read(v + 1))
-                out.append("goto L%04X;" % tgt); out.append("__END__"); break
+                targets.add(tgt); maxtgt = max(maxtgt, tgt); stmt = "goto L%04X;" % tgt
             elif base == "ret":
-                out.append("return %s;" % regA); break
+                stmt = "return %s;" % regA
             elif base in ("inc",):
                 regA = "(%s + 1)" % regA
             elif base in ("dec",):
                 regA = "(%s - 1)" % regA
             else:
-                out.append("/* %s */" % m)
+                stmt = "/* %s */" % m
+            insns.append((v, stmt))
             v = nx
-        return [x for x in out if x != "__END__"]
+            if base in ("ret", "jmp", "brel", "brel'") and v > maxtgt:
+                break                                    # terminator with no forward target beyond -> routine end
+
+        # emit only labels that are actually branched-to; drop gotos to labels we never lifted
+        present = {a for a, _ in insns}
+        live = {t for t in targets if t in present}
+        out = []
+        for addr, stmt in insns:
+            if addr in live:
+                out.append("L%04X:" % addr)
+            if stmt is None:
+                continue
+            mg = re.search(r"goto L([0-9A-F]{4});", stmt)
+            if mg and int(mg.group(1), 16) not in live:    # target off the lifted body -> keep addr, no dangling label
+                stmt = stmt.replace("goto L%s;" % mg.group(1), "goto $%s;  /* out-of-body */" % mg.group(1))
+            out.append(stmt)
+        # drop a `goto Lxxxx;` immediately followed by its own `Lxxxx:` label (redundant fall-through)
+        dedup = []
+        for j, s in enumerate(out):
+            mg = re.match(r"goto L([0-9A-F]{4});$", s)
+            if mg and j + 1 < len(out) and out[j + 1] == "L%s:" % mg.group(1):
+                continue
+            dedup.append(s)
+        out = dedup
+        # peephole: `x = f(...); return x;`  ->  `return f(...);`
+        peep = []
+        i = 0
+        while i < len(out):
+            cur = out[i]; nxt = out[i + 1] if i + 1 < len(out) else None
+            ma = re.match(r"^(\w+) = (.+);$", cur)
+            if ma and nxt == "return %s;" % ma.group(1):
+                peep.append("return %s;" % ma.group(2)); i += 2; continue
+            peep.append(cur); i += 1
+        return peep
 
     def emit(entry):
         name = S.string(entry) or "sub_%04X" % entry
         print("\nvoid %s() {" % name)
         for s in lift(entry):
-            print("    " + s)
+            print(("  " if s.endswith(":") else "    ") + s)
         print("}")
 
     if a.at:
