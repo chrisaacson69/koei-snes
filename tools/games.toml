@@ -35,3 +35,46 @@ loader            = 0x9636   # cross-bank block copy -> WRAM (self-mod MVN at $0
 code_span         = [0x800C, 0xB20A]   # native engine extent (rest of bank $00 = data)
 # operand-fetch helpers -> bytes each pulls from the bytecode PC ($06)
 fetch_helpers = { 0xA089 = 1, 0xA09B = 1, 0xA0BC = 2, 0xA0C4 = 2, 0xA0CE = 2 }
+# Per-routine native trampoline (same convention as gemfire; discovered via the cross-title
+# compare): each bytecode routine is prefixed by `JSR $23E6` + a 2-byte param, body at +5.
+# (The original rot3k2 walk used offset 0, decoding the 5-byte trampoline as bytecode.)
+routine_sig         = [0x20, 0xE6, 0x23]   # JSR $23E6 (the rot3k2 module-launcher trampoline)
+routine_body_offset = 5
+
+[gemfire]
+# 2nd KOEI SNES title. Every constant below was derived FRESH from the Gemfire ROM
+# (never copied from rot3k2/NES-Gemfire); prior projects are held as post-hoc oracles.
+title        = "Gemfire (USA)"
+mapping      = "lorom"
+rom_bytes    = 1048576
+reset        = 0x800F        # +3 vs rot3k2 ($800C): abi_table has 5 JMPs here, not 4
+abi_table    = 0x8000        # 5 JMP trampolines ($8000/$8003 ext, $8006/$8009 -> $AB96, $800C -> $8E8B)
+interpreter_loop  = 0xA340   # main fetch: SEP; LDA [$06],Y; REP; INC $06; index $A996; JMP ($00)
+primary_table     = 0xA996   # 256 entries ($A996..$AB95)
+invalid_handler   = 0xA932   # modal x38 -> 218 real opcodes (matches rot3k2's 218; oracle-pending)
+extended_prefix   = 0xB7     # the only primary opcode whose handler is $AB96
+ext_interpreter   = 0xAB96   # $B7 lands here; reads next bytecode byte, indexes $ABAE
+extended_table    = 0xABAE   # 48 entries ($ABAE..$AC0D); handlers begin $AC0E
+# op$00-$0F = ldA frame[n] (verified: $A35B stub loads a negative frame offset, common $A395 = regA=*(frame+off));
+# opcodes are byte-identical to the shared VM -> koei-snes/data/vm_opcode_names.toml applies directly.
+syscall_table     = 0x9A82   # 82 entries ($9A82..$9B25); break at sys$52 -> $2000 (WRAM)
+syscall_count     = 82       # (rot3k2 had 69 — Gemfire genuinely has more; derived here)
+syscall_dispatch  = 0x8E64   # LDA $0052 (syscall#) / ASL / JSR ($9A82,X); twin wrapper $8E8B
+resource_archive  = 0xF800   # 16-byte dir entries: 8-char name + slot-byte + src/size
+run_vm_entry      = 0xA340   # coincides with the loop entry (no separate setup trampoline like rot3k2's $9A4C);
+                             # modules invoke bytecode via the $8006 ABI -> $AB96, then run in $A340
+loader            = 0x9B64   # archive name-search (walks $F800 16-byte entries); block copy at $9D14/$9D57
+code_span         = [0x800F, 0xBB93]   # native_floor reachability walk: 6414 insns, code ends $BB93 (above = data)
+# Module overlay slots (from the archive slot-byte). Gemfire's own module set:
+#   1: root, bdata, bg_map        2: open        3: settei, event, command
+#   4: comusr1, comusr2, comcmp, ending          5: senzen, sensou, sengo
+#   6: sntanm1..sntanm5, sendisp
+# root confirmed resident at WRAM $7E:2000 (boot JML [$809C]=$7E2000). Rest pending per-module walk.
+module_bases = { root = 0x2000 }
+# operand-fetch helpers (just below primary_table, as in rot3k2): bytes each pulls from PC ($06)
+fetch_helpers = { 0xA93E = 1, 0xA96C = 2, 0xA974 = 2 }
+# Per-routine native trampoline: each bytecode routine is prefixed by `JSR $3287` + a 2-byte
+# param, so a call target ($AC/$E9) points at the trampoline and the bytecode BODY is at +5.
+# (rot3k2 default = sig [0x20,0xE6], offset 0.) See docs/00-recon.md.
+routine_sig         = [0x20, 0x87, 0x32]   # JSR $3287 (the $3287 module-launcher trampoline)
+routine_body_offset = 5                    # JSR(3) + 2-byte inline param -> body

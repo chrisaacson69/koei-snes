@@ -12,7 +12,13 @@
 "10-1F" = "load  regC = frame[n]"
 "20-2F" = "store frame[n] = regA"
 "30-3F" = "push  frame[n]"
-"40-7F" = "loadc regA = (op & 0x0F)"
+# $40-$7F is FOUR distinct ops, not one "loadc" — verified on Gemfire (4 separate handlers
+# $A4DE/$A4EC/$A4F1/$A502; the low nibble is the immediate). The old single-"loadc" label was wrong
+# and hid the field-offset idiom ($7N = addA #n). (Re-verify on rot3k2 during its re-walk.)
+"40-4F" = "ldA  #(op & 0x0F)"
+"50-5F" = "ldC  #(op & 0x0F)"
+"60-6F" = "push #(op & 0x0F)"
+"70-7F" = "addA #(op & 0x0F)"
 
 [primary]                     # 0x80-0xEA (0x91-0x9F,0xB2,0xCE,0xEB-0xFF -> $A082 nop)
 # --- load / store / push (odd op = 1-byte operand, even = 2-byte) ---

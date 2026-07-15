@@ -22,9 +22,20 @@ Depends on `snes-decompiler` (CPU/hardware substrate). Title repos (e.g.
   (frame/load/store/ALU/compares/control/call/ret + 32-bit ext set). Exact operand
   sizes from the fetch-helper family. Disassembler + recursive-descent walker built.
 - ✅ Syscall table (69) named to hardware (via `snes_regs`); the 22-byte-param ABI.
-- ✅ Profile mechanism (`games.toml`) — first profile `[rot3k2]`.
+- ✅ Profile mechanism (`games.toml`) — profiles `[rot3k2]` and `[gemfire]`.
+- ✅ Per-routine native trampoline decoded + made profile-driven
+  (`routine_sig`/`routine_body_offset`): each bytecode routine is a 5-byte `JSR <launcher>`
+  stub, body at `+5`. One walker handles both titles (fixed ROTK2's offset-0 bug).
+
+## Toolchain (decode → symbol table → layered source)
+- `native_floor.py` / `vm_walk.py` / `vm_callgraph.py` — reachability + call-graph walk (→ `data/<mod>/routines.toml`).
+- `vm_disasm.py` / `vm_opcodes.py` — the bytecode decoder + operand-size derivation.
+- `syscall_probe.py` / `data_walk.py` — syscall naming + string/data recovery.
+- **Layered source (the deliverable):** `gen_layers.py <rom> <title-repo>` drives all three layers
+  from the ROM's `$00:F800` archive — `gen_native.py` (assembly: native kernel), `gen_source.py`
+  (bytecode: per-module `.src`), `vm_lift.py` (C: `.c`; `vm_struct.py` = goto-less). `gen_mlb.py`
+  emits Mesen labels. Output lands in the title repo's `src/` (see its `src/README.md`).
 
 ## Next
-- Enumerate bytecode entry points from the native module trampolines (full module coverage).
-- Pin the few medium-confidence opcode variants; render `hostcall` via syscall names.
-- Add the next KOEI SNES title's profile and validate the toolchain ports.
+- Add the next KOEI SNES title's profile and validate the toolchain ports (Uncharted Waters is the NES finale; SNES titles TBD).
+- Pin the few medium-confidence opcode variants; extend `native.asm` labelling for non-Gemfire titles.

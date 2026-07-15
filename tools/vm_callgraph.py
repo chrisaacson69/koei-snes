@@ -53,6 +53,17 @@ def main(argv):
     def read(v):
         return rom[start_off + (v - vaddr0)]
 
+    # Per-routine call convention (profile-driven; defaults = rot3k2). A call target points
+    # at a native trampoline whose signature is SIG; the bytecode body begins BODY_OFF bytes in.
+    SIG = V.PROFILE.get("routine_sig", [0x20, 0xE6])
+    BODY_OFF = V.PROFILE.get("routine_body_offset", 0)
+
+    def is_entry(t):
+        try:
+            return all(read(t + i) == SIG[i] for i in range(len(SIG)))
+        except Exception:
+            return False
+
     def declen(v):
         op = read(v)
         if op == D.EXT_PREFIX:
@@ -82,7 +93,7 @@ def main(argv):
 
     def walk_routine(entry):
         starts, interior, calls, indirect, conflict, order = set(), set(), set(), 0, 0, []
-        work = [entry]
+        work = [entry + BODY_OFF]      # skip the native trampoline; decode from the bytecode body
         while work:
             v = work.pop()
             while True:
@@ -120,15 +131,23 @@ def main(argv):
         return dict(size=len(starts), calls=calls, indirect=indirect, conflict=conflict, order=order)
 
     seeds = [vaddr0]
-    if a.scan:                       # scan the code region for call targets to seed discovery.
-        v = vaddr0                   # SCAN seeds must carry the prologue (kills linear-drift
-        while v < a.scan:            # false entries); real call edges found while walking are
-            op = read(v)             # trusted below even without it (some routines, e.g. the
-            if op in DIRECT_CALL:    # HW-math $6B45, are called but use a different prologue).
-                t = read(v + 1) | (read(v + 2) << 8)
-                if vaddr0 <= t < a.scan and read(t) == 0x20 and read(t + 1) == 0xE6:
-                    seeds.append(t)
-            v += declen(v)
+    if a.scan:
+        if BODY_OFF:                 # trampolined module: the native stubs make a linear bytecode
+            v = vaddr0               # scan drift, so seed from every trampoline SIGNATURE directly
+            while v < a.scan:        # (walk_routine validates each; junk matches get rejected).
+                if is_entry(v):
+                    seeds.append(v); v += BODY_OFF
+                else:
+                    v += 1
+        else:                        # scan the code region for call targets to seed discovery.
+            v = vaddr0               # SCAN seeds must carry the prologue (kills linear-drift
+            while v < a.scan:        # false entries); real call edges found while walking are
+                op = read(v)         # trusted below even without it (some routines, e.g. the
+                if op in DIRECT_CALL:  # HW-math $6B45, are called but use a different prologue).
+                    t = read(v + 1) | (read(v + 2) << 8)
+                    if vaddr0 <= t < a.scan and is_entry(t):
+                        seeds.append(t)
+                v += declen(v)
     routines, work, external = {}, list(seeds), set()
     while work:
         e = work.pop()
@@ -142,7 +161,7 @@ def main(argv):
         # point from data mis-decode (esp. the data-heavy HW-math routine). Excluded from
         # the routine set; if it is genuinely called it can still be named in routines.toml
         # (annotation), and the frontier logic below does not block on non-routine callees.
-        if e != vaddr0 and not (read(e) == 0x20 and read(e + 1) == 0xE6):
+        if e != vaddr0 and not is_entry(e):
             external.add(e); continue
         r = walk_routine(e)
         # a "clean" bytecode routine has no immediate conflict and some size

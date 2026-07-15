@@ -12,7 +12,7 @@ the common shapes (accessors, display calls, wrappers); complex/rare ops fall ba
     py -3 tools/vm_lift.py <rom> --start 04:AB7E --base 7E:7208 --at 7698 --syms data/comroot
     (--at ADDR lifts one routine; omit to lift every named routine in the module)
 """
-import argparse, os, sys
+import argparse, os, re, sys
 HERE = os.path.dirname(os.path.abspath(__file__)); sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.normpath(os.path.join(HERE, "..", "..", "snes-decompiler", "tools")))
 from mapper import cpu_to_file, strip_copier_header, LOROM
@@ -26,13 +26,32 @@ BINOP = {"add": "+", "sub": "-", "mul": "*", "mul16": "*", "udiv": "/", "sdiv": 
          "ge.u": ">=", "ge.s": ">=", "add32": "+", "sub32": "-", "smul32": "*"}
 
 
+def load_syscalls(syms_dir):
+    """id -> name from <repo>/data/syscall_names.toml (the [[syscall]] array); [] blocks
+    list `id = 0xNN` then `name = "..."`. Lets the lifter render `sys_<name>(...)` instead
+    of `do_syscall(..., $id)` -- the id is the last-pushed #i8 (param-block byte 0 / $52)."""
+    path = os.path.join(os.path.dirname(os.path.normpath(syms_dir)), "syscall_names.toml")
+    out, cur = {}, None
+    if os.path.isfile(path):
+        for line in open(path, encoding="utf-8"):
+            m = re.match(r"\s*id\s*=\s*0x([0-9A-Fa-f]+)", line)
+            if m:
+                cur = int(m.group(1), 16)
+            n = re.match(r'\s*name\s*=\s*"([^"]+)"', line)
+            if n and cur is not None:
+                out[cur] = n.group(1); cur = None
+    return out
+
+
 def main(argv):
     ap = argparse.ArgumentParser()
     ap.add_argument("rom"); ap.add_argument("--start", required=True); ap.add_argument("--base", required=True)
     ap.add_argument("--syms", required=True); ap.add_argument("--at", default=None)
+    ap.add_argument("--scan", default=None)   # module-mode end addr (else base+0x4000)
     a = ap.parse_args(argv[1:])
     rom, _ = strip_copier_header(open(a.rom, "rb").read()); V.rom = rom
     S = Symbols(a.syms)
+    SYSCALLS = load_syscalls(a.syms)
     pbase = cpu_to_file(LOROM, 0, D.PRIMARY); ebase = cpu_to_file(LOROM, 0, D.EXTENDED)
     prim = [rom[pbase + 2*i] | (rom[pbase + 2*i+1] << 8) for i in range(256)]
     ext = [rom[ebase + 2*i] | (rom[ebase + 2*i+1] << 8) for i in range(48)]
@@ -50,12 +69,23 @@ def main(argv):
     def s8(b):
         return b - 256 if b & 0x80 else b
 
+    # Per-routine native trampoline (profile-driven, works for every KOEI SNES title):
+    # the entry is the SIG stub; the bytecode body starts a fixed BODY_OFF bytes in.
+    SIG = V.PROFILE.get("routine_sig", [0x20, 0xE6])
+    BODY_OFF = V.PROFILE.get("routine_body_offset", 0)
+
+    def is_entry(vv):
+        try:
+            return all(read(vv + i) == SIG[i] for i in range(len(SIG)))
+        except Exception:
+            return False
+
     def lift(entry):
         regA, regC, st, out = "arg", "0", [], []
         v = entry
-        # skip the `store f[0] / brel` prologue -> body
-        if read(v) == 0x20 and read(v + 1) == 0xE6:
-            v = v + 2 + s8(read(v + 2))
+        # skip the native trampoline stub -> bytecode body
+        if is_entry(v):
+            v += BODY_OFF
         guard = 0
         while guard < 400:
             guard += 1
@@ -85,6 +115,10 @@ def main(argv):
                 regA = "(%s %s %s)" % (regA, BINOP[base], regC)
             elif base in ("hostcall", "call.n"):
                 t = read(v + 1) | (read(v + 2) << 8); fn = S.string(t) or "sub_%04X" % t
+                if "syscall" in fn and st:               # syscall bridge: id = last pushed ($52)
+                    idv = st.pop()
+                    mi = re.match(r"\$([0-9A-Fa-f]+)$", idv)
+                    fn = (SYSCALLS.get(int(mi.group(1), 16)) if mi else None) or "%s[%s]" % (fn, idv)
                 args = ", ".join(reversed([st.pop() for _ in range(min(len(st), 3))])) if st else ""
                 out.append("%s = %s(%s);" % (regA, fn, args) if base == "call.n" else "%s(%s);" % (fn, args))
             elif base in ("call.ind", "call.ind2"):
@@ -120,9 +154,9 @@ def main(argv):
     if a.at:
         emit(int(a.at, 16))
     else:
-        v = vaddr0; end = vaddr0 + 0x4000
+        v = vaddr0; end = int(a.scan, 16) if a.scan else vaddr0 + 0x4000
         while v < end:
-            if read(v) == 0x20 and read(v + 1) == 0xE6 and S.string(v):
+            if is_entry(v) and S.string(v):
                 emit(v)
             v += 1
 

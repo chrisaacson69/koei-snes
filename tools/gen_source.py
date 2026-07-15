@@ -46,12 +46,25 @@ def main(argv):
     def s8(b):
         return b - 256 if b & 0x80 else b
 
-    print("; ==== %s source (derived) — base $%s, %d symbols ====" % (a.syms.split("/")[-1], a.base, len(S.strings)))
+    # Per-routine native trampoline (profile-driven, works for every KOEI SNES title):
+    # a routine entry is the SIG stub; the bytecode body starts BODY_OFF bytes in.
+    SIG = V.PROFILE.get("routine_sig", [0x20, 0xE6])
+    BODY_OFF = V.PROFILE.get("routine_body_offset", 0)
+
+    def is_entry(vv):
+        try:
+            return all(read(vv + i) == SIG[i] for i in range(len(SIG)))
+        except Exception:
+            return False
+
+    print("; ==== %s source (derived) - base $%s, %d symbols ====" % (a.syms.split("/")[-1], a.base, len(S.strings)))
     v = vaddr0
     while v < end:
-        lbl = S.string(v)
-        if lbl and read(v) == 0x20 and read(v + 1) == 0xE6:
-            print("\n%s:" % lbl)                       # routine label
+        if is_entry(v):                                # routine entry: label it, then skip the native stub
+            lbl = S.string(v) or "sub_%04X" % v
+            print("\n%s:%s" % (lbl, ("   ; $%04X (native trampoline; body +%d)" % (v, BODY_OFF)) if BODY_OFF else ""))
+            v += BODY_OFF
+            continue
         op = read(v)
         try:
             ln = declen(v)

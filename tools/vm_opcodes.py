@@ -117,8 +117,50 @@ def kind(sig):
 
 
 # Operand-fetch helpers, decoded from native code -> exact bytes each pulls from [$06].
-FETCH_HELPERS = PROFILE["fetch_helpers"]
+# FETCH_HELPERS is an optional per-game OVERRIDE; the advance is otherwise auto-derived
+# from the ROM by following the called sub (_sub_advance), so a game's fetch helpers do
+# not have to be hand-listed -- the engine reads each title's own handlers.
+FETCH_HELPERS = PROFILE.get("fetch_helpers", {})
 _LOOP_RET = {_il, _il + 1}
+
+_ADV_CACHE = {}
+
+
+def _sub_advance(entry, cap=48):
+    """Bytes a called sub pulls from the bytecode PC ($06): count INC $06 (and nested
+    fetch subs) on its primary path -- fall-through, always-taken CLC branches, and
+    unconditional jumps -- stopping at RTS/RTL. Auto-derives a fetch helper's operand
+    width with no hand-list; robust to helpers that branch (sign-extend, frame-resolve)."""
+    if entry in _ADV_CACHE:
+        return _ADV_CACHE[entry]
+    _ADV_CACHE[entry] = 0  # cycle guard
+    a, m8, x8, total, just = entry, False, False, 0, False
+    for _ in range(cap):
+        f = _ro(a)
+        if f is None:
+            break
+        ins, m8, x8 = w65c816.decode(rom, f, 0, a, m8, x8)
+        mn, md, raw, tgt = ins["mnem"], ins["mode"], ins["raw"], ins["target"]
+        now = False
+        if mn in ("JSR", "JSL") and tgt and tgt[0] == 0:
+            s = _sub_advance(tgt[1], cap)
+            if s:
+                total += s; now = True
+        if mn == "INC" and md == "dp" and len(raw) > 1 and raw[1] == 0x06:
+            total += 1; now = True
+        if mn in ("BCC", "BCS") and just and tgt and tgt[0] == 0:
+            a = tgt[1]; just = False; continue
+        if mn in ("JMP", "JML"):
+            if tgt and tgt[1] in _LOOP_RET:
+                break
+            if tgt and tgt[0] == 0:
+                a = tgt[1]; continue
+            break
+        if mn in ("RTS", "RTL", "RTI"):
+            break
+        just = now; a += ins["len"]
+    _ADV_CACHE[entry] = total
+    return total
 
 
 def operand_size(handler, cap=80):
@@ -138,8 +180,10 @@ def operand_size(handler, cap=80):
         mn, md, raw = ins["mnem"], ins["mode"], ins["raw"]
         tgt = ins["target"]
         fetched_now = False
-        if mn in ("JSR", "JSL") and tgt and tgt[1] in FETCH_HELPERS:
-            total += FETCH_HELPERS[tgt[1]]; fetched_now = True
+        if mn in ("JSR", "JSL") and tgt and tgt[0] == 0:
+            adv = FETCH_HELPERS[tgt[1]] if tgt[1] in FETCH_HELPERS else _sub_advance(tgt[1])
+            if adv:
+                total += adv; fetched_now = True
         if mn == "INC" and md == "dp" and len(raw) > 1 and raw[1] == 0x06:
             total += 1
         if mn in ("STA", "STX") and md == "dp" and len(raw) > 1 and raw[1] == 0x06:
