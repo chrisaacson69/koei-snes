@@ -78,3 +78,32 @@ fetch_helpers = { 0xA93E = 1, 0xA96C = 2, 0xA974 = 2 }
 # (rot3k2 default = sig [0x20,0xE6], offset 0.) See docs/00-recon.md.
 routine_sig         = [0x20, 0x87, 0x32]   # JSR $3287 (the $3287 module-launcher trampoline)
 routine_body_offset = 5                    # JSR(3) + 2-byte inline param -> body
+
+[aerobiz]
+# 3rd KOEI SNES title: Aerobiz (USA) -- the ORIGINAL (JP Air Management: Oozora ni Kakeru, SFC 1992-04;
+# never on NES/Famicom). Every constant derived FRESH from the Aerobiz ROM by the recon #1 workflow
+# (7 derive families, 8 independent verifiers, 1 critic; all verified) -- AeroBiz-decompiler/docs/00-recon.md.
+title        = "Aerobiz (USA)"
+mapping      = "lorom"
+rom_bytes    = 1048576
+reset        = 0x800C        # same as rot3k2 (4 ABI JMPs)
+abi_table    = 0x8000        # $8000->$A29B run-VM, $8003->$A277 syscall, $8006/$8009->$AB35 ext (unreferenced)
+interpreter_loop  = 0xA2DF   # loop HEAD (gemfire convention); $A2DE = PLB tail of run_vm_entry
+primary_table     = 0xA935   # 256 entries ($A935..$AB34), 162 distinct handlers
+invalid_handler   = 0xA8D1   # BRK stub x38 (80, 91-9F, B2, CE, EB-FE); op $FF -> $A8D3 (+2, also BRK) -> 217 live
+extended_prefix   = 0xB7
+ext_interpreter   = 0xAB35   # pushes #$A2DE so ext handlers RTS to the loop head
+extended_table    = 0xAB4D   # 48 words ($AB4D..$ABAC); ext[0]=$0000 null (BRK); 47 live $01-$2F; bytes >= $30 invalid
+syscall_table     = 0x9753   # 99 entries ($00-$62), 98 distinct ($0D=$0E); ends at mask table $9819
+syscall_count     = 99
+syscall_dispatch  = 0x8D23   # id = $52 & $FF; JSR ($9753,X) at $8D46 (+ Aerobiz-only CMP #$0F / STA $6D)
+run_vm_entry      = 0xA29B   # routine prologue: frame from trampoline word, PC = tramp+5 (= rot3k2 $9A4C / gemfire $A2FC)
+resource_archive  = 0xF000   # 223 rows [name8][bank u16][addr u16][len u32], zero row at $FDF0 (NOT $F800 = row 128)
+loader            = 0x983D   # sys $18 res_open = name search over $F000 (gemfire meaning); copy $9A39 -> DMA ch5 $9AD2
+code_span         = [0x800C, 0xD085]   # recon preview (native_floor with scratch profile): 8,820 insns
+module_bases = { COMMON = 0x1000, ALNMAIN = 0x2000, START = 0x9000, OPENING = 0x9000, RENEWAL = 0x9000, JUDGMENT = 0x9000, ENDING = 0x9000, COMMAND = 0x8C00, DIORAMA = 0xC100, AIRWAY = 0xD000, OPERATE = 0xD000, INFORM = 0xD000, TRADE = 0xD000, INVEST = 0xD000, NEGO = 0xD000, CAMPAIGN = 0xD000, ALGO = 0xD000, SIMULATE = 0xD000, SYSTEM = 0xD000, REPORT = 0xD000, DEMAND = 0xD000, DIORMINF = 0xD000 }
+# operand-fetch helpers: $A8D8 s8 imm; $A8EA s8 frame-rel addr->$00; $A90B imm16; $A913 a16->$00; $A91D s16 frame-rel
+fetch_helpers = { 0xA8D8 = 1, 0xA8EA = 1, 0xA90B = 2, 0xA913 = 2, 0xA91D = 2 }
+# Per-routine trampoline: JSR $1C10 (COMMON's JSL $008000 stub) + signed frame-size word; body at +5. 479 routines.
+routine_sig         = [0x20, 0x10, 0x1C]
+routine_body_offset = 5
