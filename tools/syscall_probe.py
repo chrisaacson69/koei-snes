@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """
-Fingerprint the ROTK2-SNES syscall table ($00:937B, 69 entries) by walking each
-handler and recording the hardware registers it touches (named via snes_regs).
+Fingerprint a KOEI SNES title's syscall table (profile syscall_table / syscall_count; ROTK2:
+$00:937B, 69 entries) by walking each handler and recording the hardware registers it touches
+(named via snes_regs).
 
 The dispatcher $8C1D calls JSR ($937B,X) with index = byte 0 of the 22-byte param
 block, entering handlers in m16/x16. For each handler we follow branches + descend
 one level into JSR/JSL callees, classify each absolute access as R/W/RMW, and map
 register addresses to names -> a per-syscall subsystem fingerprint to name it from.
 
-    py -3 tools/syscall_probe.py "<rom>.sfc"
+    py -3 tools/syscall_probe.py "<rom>.sfc" [--game g]
     py -3 tools/syscall_probe.py "<rom>.sfc" --id 0x10     # detail one syscall
+(profile: --game, else $KOEI_SNES_GAME, else the ROM header -- checked against the ROM)
 """
 import argparse
 import os
@@ -23,11 +25,7 @@ from mapper import cpu_to_file, strip_copier_header, LOROM       # noqa: E402
 from header_parse import detect                                   # noqa: E402
 import w65c816                                                    # noqa: E402
 import snes_regs                                                  # noqa: E402
-from profile import load as _load_profile                         # noqa: E402
-
-_P = _load_profile(os.environ.get("KOEI_SNES_GAME"))
-TABLE_ADDR = _P["syscall_table"]
-TABLE_LEN = _P["syscall_count"]
+import profile as _profile                                        # noqa: E402
 
 WRITE = {"STA", "STX", "STY", "STZ"}
 RMW = {"INC", "DEC", "ASL", "LSR", "ROL", "ROR", "TSB", "TRB"}
@@ -103,15 +101,17 @@ def main(argv):
     ap = argparse.ArgumentParser()
     ap.add_argument("rom")
     ap.add_argument("--id", default=None, help="hex id to detail (e.g. 0x10)")
+    ap.add_argument("--game", default=None, help="games.toml profile (else $KOEI_SNES_GAME, else the ROM header)")
     args = ap.parse_args(argv[1:])
     rom, _ = strip_copier_header(open(args.rom, "rb").read())
+    P = _profile.select(args.game, rom)
     score, f = detect(rom)
     mapping = f["mapping_guess"]
 
-    base = cpu_to_file(mapping, 0x00, TABLE_ADDR)
-    entries = [rom[base + 2 * i] | (rom[base + 2 * i + 1] << 8) for i in range(TABLE_LEN)]
+    base = cpu_to_file(mapping, 0x00, P["syscall_table"])
+    entries = [rom[base + 2 * i] | (rom[base + 2 * i + 1] << 8) for i in range(P["syscall_count"])]
 
-    ids = [int(args.id, 16)] if args.id else range(TABLE_LEN)
+    ids = [int(args.id, 16)] if args.id else range(P["syscall_count"])
     if not args.id:
         print("id   addr    n    subsystems            writes/RMW (control regs)")
         print("-" * 92)
@@ -133,4 +133,5 @@ def main(argv):
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(sys.argv))
+    import profile as _cli
+    sys.exit(_cli.run_cli(main))

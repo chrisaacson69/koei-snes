@@ -10,7 +10,7 @@ Reads:
 Emits <title_dir>/data/enums.py with:
   SYSCALLS = {id: name}, SYSCALL_ID = {name: id}
   STRING_TABLES = {table: {index: label}}, STRING_TABLE_BASE = {table: base_addr}
-The bytecode tools import these to render `hostcall sys_blit_rect` and a table index
+The bytecode tools import these to render `call.p sys_blit_rect` and a table index
 as `diplomacy_prompt[5] = ally_whom`. Strings self-ground; treated like enums.
 """
 import os, re, sys

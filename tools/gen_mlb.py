@@ -12,7 +12,8 @@ Overlays SHARE WRAM addresses ($7200 slot: comroot/settei/kisetsu; $C300 slot:
 excsub1-6), so Mesen can hold only one set per slot -- list exactly one module per slot
 on the command line (default root+comroot+excsub1). Resident root ($2xxx-$6xxx) and the
 shared high-WRAM globals/records ($E000+/$F800+) are always emitted (first module wins).
-A few native VM entry points (bank $00) are added from games.toml as `SnesPrgRom`.
+A few native VM entry points (bank $00) are added from the title's games.toml profile
+(--game, else $KOEI_SNES_GAME -- required: there is no default profile) as `SnesPrgRom`.
 """
 import argparse
 import os
@@ -52,7 +53,11 @@ def main(argv):
     ap.add_argument("modules", nargs="+")
     ap.add_argument("--data", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--game", default=None, help="games.toml profile (else $KOEI_SNES_GAME; required)")
     a = ap.parse_args(argv[1:])
+    sys.path.insert(0, HERE)
+    import profile as _profile
+    P = _profile.select(a.game)                  # raises when no profile is selected
     merged = {}                                  # addr -> (label, comment, module)
     for mod in a.modules:                        # first module to claim an address wins
         for addr, (label, cmt) in load_labels(os.path.join(a.data, mod)).items():
@@ -64,21 +69,16 @@ def main(argv):
         off = addr if addr < 0x10000 else addr    # $7E:xxxx WorkRam offset = xxxx
         note = ("%s" % mod) + ((" | " + cmt) if cmt else "")
         lines.append("SnesWorkRam:%X:%s:%s" % (off, label, note))
-    # native VM entry points (bank $00 ROM) from the profile, as SnesPrgRom offsets
-    try:
-        sys.path.insert(0, HERE)
-        from profile import load as load_profile
-        P = load_profile("rot3k2")
-        native = {"vm_interp_loop": P.get("interpreter_loop"), "vm_run_entry": P.get("run_vm_entry"),
-                  "syscall_dispatch": P.get("syscall_dispatch"), "resource_loader": P.get("loader")}
-        for name, addr in native.items():
-            if addr:
-                lines.append("SnesPrgRom:%X:%s:native VM" % (cpu_to_file(LOROM, 0, addr), name))
-    except Exception as e:
-        print("  (native labels skipped: %s)" % e, file=sys.stderr)
+    # native VM entry points (bank $00 ROM) from the title's profile, as SnesPrgRom offsets
+    native = {"vm_interp_loop": P.get("interpreter_loop"), "vm_run_entry": P.get("run_vm_entry"),
+              "syscall_dispatch": P.get("syscall_dispatch"), "resource_loader": P.get("loader")}
+    for name, addr in native.items():
+        if addr:
+            lines.append("SnesPrgRom:%X:%s:native VM" % (cpu_to_file(LOROM, 0, addr), name))
     open(a.out, "w", encoding="utf-8").write("\n".join(lines) + "\n")
     print("wrote %s: %d labels (%d modules: %s)" % (a.out, len(lines), len(a.modules), ", ".join(a.modules)))
 
 
 if __name__ == "__main__":
-    main(sys.argv)
+    import profile as _cli
+    sys.exit(_cli.run_cli(main))

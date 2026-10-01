@@ -14,16 +14,16 @@ mechanisms were rebuilt for each machine's hardware.
 | Syscall param passing | **22-byte param block**, return via pointer | **22-byte param block**, work buffer `$52` |
 | Syscall count | ~23-31 | **69** (richer hardware surface) |
 | VM model | register machine, DP registers | register machine, DP registers |
-| Opcode count | 217-219 | **218** (256 − 38 nop slots) |
+| Opcode count | 217-219 | **217** live (256 − 39 dead: 38 at the invalid handler + `$FF`) |
 | Frame-local ops | `$00-3F` matrix | `$00-3F` matrix |
 | Extended prefix | `$B7` → 32-bit-math subtable | `$B7` → 32-bit-math subtable |
-| Host-call opcode | `$E9` | `$E9` |
+| Call + arg-pop opcode | `$E9` (CALL_abs_imm1) | `$E9` `call.p` (host-call = its syscall use) |
 | Graphics API | PPU writes | PPU + **DMA**, Mode 7, byte-plane VRAM |
 | Audio | on-CPU APU | mailboxed **SPC700** (queue → `$2140`) |
 
 ## What ported (design)
 - The **VM instruction set**: frame matrix, stack, ALU, compares-as-booleans, the `$B7`
-  extended 32-bit subtable, the `$E9` host-call. Opcode *numbers* line up, not just shapes.
+  extended 32-bit subtable, the `$E9` call-and-pop. Opcode *numbers* line up, not just shapes.
 - The **syscall convention**: a 22-byte parameter block selecting a handler from a table.
 - The **program/kernel split**: bytecode modules over a native kernel + a stable ABI.
 
@@ -48,10 +48,12 @@ Verdict: **faithful engine + architecture port with a graphical facelift; NOT a 
 rewrite.** Three layers:
 
 **1. VM opcodes — byte-for-byte the same.** Every control/call op sits at the identical
-opcode byte on both machines: `$E9` hostcall, `$AC` call, `$DD`/`$EA` call.ind, `$CF`
-ret, `$D5`/`$D9` switch, `$D6` jmp, `$D8` brz, `$B7` 32-bit prefix, `$00-3F` frame matrix.
-Counts: NES **219** vs SNES **218** (256 minus the nop slots). Same instruction set, same
-numbers -- a bytecode routine uses the same opcodes on both.
+opcode byte on both machines: `$E9` call.p (call + arg pop; NES CALL_abs_imm1), `$AC` call.n,
+`$DD`/`$EA` call.ind, `$CF` ret, `$D5`/`$D9` switch, `$D6` jmp, `$D7`/`$D8` jnz/jz a16 (NES
+JUMPT/JUMPF_abs), `$B7` 32-bit prefix, `$00-3F` frame matrix. Counts: NES **219** vs SNES
+**217** live (256 minus 39 dead slots). Same instruction set, same numbers -- a bytecode
+routine uses the same opcodes on both. (Names corrected 2026-09-30; see the CHANGELOG in
+`data/vm_opcode_names.toml` -- the NES table's names had them right all along.)
 
 **2. Architecture — the same shape.** NES: **bank 1 = resident `$8000` strategic library**
 (`run_turn_loop`, `dispatch_command`, AI scorers, diplomacy) + command apps in banks 2-7,
