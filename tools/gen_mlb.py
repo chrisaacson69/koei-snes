@@ -23,6 +23,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.normpath(os.path.join(HERE, "..", "..", "snes-decompiler", "tools")))
 from mapper import cpu_to_file, LOROM
+from emu_harness.backends.mesen.labels import write_mlb   # pip install -e ../emu-harness (py -3.14)
+from emu_harness.core.symbols import Symbol
 _LINE = re.compile(r'(0x[0-9A-Fa-f]+)\s*=\s*"([^"]+)"(?:\s*#\s*"([^"]*)")?')
 
 
@@ -63,20 +65,22 @@ def main(argv):
         for addr, (label, cmt) in load_labels(os.path.join(a.data, mod)).items():
             if addr not in merged and label != "DRIFT":
                 merged[addr] = (label, cmt, mod)
-    lines = []
+    symbols = []
     for addr in sorted(merged):
         label, cmt, mod = merged[addr]
-        off = addr if addr < 0x10000 else addr    # $7E:xxxx WorkRam offset = xxxx
         note = ("%s" % mod) + ((" | " + cmt) if cmt else "")
-        lines.append("SnesWorkRam:%X:%s:%s" % (off, label, note))
+        symbols.append(Symbol("snes.work_ram", addr, label, note))   # $7E:xxxx -> WorkRam offset xxxx
     # native VM entry points (bank $00 ROM) from the title's profile, as SnesPrgRom offsets
     native = {"vm_interp_loop": P.get("interpreter_loop"), "vm_run_entry": P.get("run_vm_entry"),
               "syscall_dispatch": P.get("syscall_dispatch"), "resource_loader": P.get("loader")}
     for name, addr in native.items():
         if addr:
-            lines.append("SnesPrgRom:%X:%s:native VM" % (cpu_to_file(LOROM, 0, addr), name))
-    open(a.out, "w", encoding="utf-8").write("\n".join(lines) + "\n")
-    print("wrote %s: %d labels (%d modules: %s)" % (a.out, len(lines), len(a.modules), ", ".join(a.modules)))
+            symbols.append(Symbol("snes.prg_rom", cpu_to_file(LOROM, 0, addr), name, "native VM"))
+    problems = write_mlb(symbols, a.out)      # emu-harness: Mesen's own export format
+    print("wrote %s: %d labels (%d modules: %s)" % (a.out, len(symbols) - len(problems), len(a.modules),
+                                                     ", ".join(a.modules)))
+    for p in problems:
+        print("  dropped:", p)
 
 
 if __name__ == "__main__":

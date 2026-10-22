@@ -60,7 +60,8 @@ Depends on `snes-decompiler` (CPU/hardware substrate). Title repos (`rot3k2-snes
 - **Layered source (the deliverable):** `gen_layers.py <rom> <title-repo> --game g` drives all three
   layers from the ROM's archive — `gen_native.py` (assembly: native kernel), `gen_source.py`
   (bytecode: per-module `.src`), `vm_lift.py` (C: `.c`; `vm_struct.py` = goto-less view). `gen_mlb.py`
-  emits Mesen labels. Output lands in the title repo's `src/` (see its `src/README.md`).
+  emits Mesen labels (merging the modules here; the file format is emu-harness's shared Mesen
+  writer, so it needs `py -3.14` with `pip install -e ../emu-harness`). Output lands in the title repo's `src/` (see its `src/README.md`).
 
 ## Next
 - Aerobiz module walk (label-walk): proposer reads the per-module `.c`, verifier reads the `.src`.
