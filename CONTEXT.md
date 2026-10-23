@@ -1,5 +1,13 @@
 # CONTEXT — koei-snes entry point
 
+> **2026-10-23: the toolchain moved to emu-harness** (its MIGRATION.md row F, SNES half). The code
+> lives in `emu_harness.vm.koei.snes`; the opcode table is `emu_harness/vm/koei/vm_opcode_names.toml`
+> (shared with the NES side); the profiles are `emu_harness/vm/koei/snes/games.toml`; the substrate is
+> `emu_harness.cpu.w65c816` + `emu_harness.machines.snes`. Every `tools/*.py` here is an alias that runs
+> or imports the moved module, so the commands below work unchanged (`gen_mlb.py` runs emu-harness
+> `tools/gen_mlb_koei_snes.py`). Paths below that say `tools/games.toml` / `data/vm_opcode_names.toml`
+> mean those new locations.
+
 **What:** the shared KOEI SNES engine library — the reversed register-machine bytecode
 VM + native 65C816 kernel, plus the title-agnostic toolchain to decode any KOEI SNES
 title. SNES sibling of `koei-nes`. Extracted from the ROTK2-SNES reverse-engineering.

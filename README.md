@@ -4,6 +4,14 @@ The shared **KOEI SNES engine** library — the reversed bytecode VM + native ke
 behind KOEI's SNES strategy titles, and the toolchain to decode any of them. The SNES
 sibling of [`koei-nes`](https://github.com/chrisaacson69/koei-nes).
 
+> **2026-10-23: the toolchain moved to emu-harness** (its MIGRATION.md row F, SNES half). The code
+> lives in `emu_harness.vm.koei.snes`; the opcode table is `emu_harness/vm/koei/vm_opcode_names.toml`
+> (shared with the NES side); the profiles are `emu_harness/vm/koei/snes/games.toml`; the substrate is
+> `emu_harness.cpu.w65c816` + `emu_harness.machines.snes`. Every `tools/*.py` here is an alias that runs
+> or imports the moved module, so the commands below work unchanged (`gen_mlb.py` runs emu-harness
+> `tools/gen_mlb_koei_snes.py`). Paths below that say `tools/games.toml` / `data/vm_opcode_names.toml`
+> mean those new locations.
+
 The engine (a register-machine bytecode VM over a native 65C816 kernel, with a
 resource-archive loader and a 22-byte-param-block syscall ABI) is shared across titles;
 only addresses move. Per-title addresses live in `tools/games.toml`; the tools take
